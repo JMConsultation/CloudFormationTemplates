@@ -1,0 +1,260 @@
+Description:  This template deploys an HA supported VPC
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that is prefixed to resource names
+    Type: String
+    Default: Sympan
+
+  VpcCIDR:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PublicSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.1.0/24
+
+  PublicSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the public subnet in the secound Availability Zone
+    Type: String
+    Default: 10.0.2.0/24
+
+  PrivateSubnet1CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the first Availability Zone
+    Type: String
+    Default: 10.0.3.0/24
+
+  PrivateSubnet2CIDR:
+    Description: Please enter the IP range (CIDR notation) for the private subnet in the secound Availability Zone
+    Type: String
+    Default: 10.0.4.0/24
+
+  AvailabilityZone1:
+    Description: Provide the availability zone 1
+    Type: String
+    Default: 'ap-south-1a'
+
+  AvailabilityZone2:
+    Description: Provide the availability zone 2
+    Type: String
+    Default: 'ap-south-1b'
+
+Resources:
+  ##### VPC, PUBLIC-SUB-NETS, PRIVATE-SUB-NETS
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet (AZ2)
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone1
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet (AZ1)
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone2
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet (AZ2)
+
+  ##### SECURITY-GROUP CONFIGURATION
+  NATSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "nat-sg"
+      GroupDescription: "Security Group for NAT instance"
+      VpcId: !Ref VPC
+
+  NATHttpInboundRule:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt NATSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: '80'
+      ToPort: '80'
+      CidrIp: !Ref VpcCIDR
+
+  NATHttpsInboundRule:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt NATSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: '443'
+      ToPort: '443'
+      CidrIp: !Ref VpcCIDR
+
+  NATSSHInboundRule:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt NATSecurityGroup.GroupId
+      IpProtocol: tcp
+      FromPort: '22'
+      ToPort: '22'
+      CidrIp: !Ref VpcCIDR
+
+  ##### INTERNET-GATEWAYS, NAT-GATEWAYS
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref EnvironmentName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  NAT:
+    DependsOn:
+      - PublicSubnet1
+      - NATSecurityGroup
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: 'sympn-kp'
+      SourceDestCheck: 'false'
+      ImageId: 'ami-00b3aa8a93dd09c13'
+      NetworkInterfaces:
+        - GroupSet:
+            - Ref: NATSecurityGroup
+          AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
+          DeleteOnTermination: 'true'
+          SubnetId:
+            Ref: PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: NAT
+      UserData:
+        Fn::Base64:
+          Fn::Join:
+            - ''
+            - - "#!/bin/bash\n"
+              - yum update -y && yum install -y yum-cron && chkconfig yum-cron on
+
+  ##### ROUTING-TABLE CONFIGURATION
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Routes
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Routes (AZ1)
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NAT
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC
+
+  PublicSubnets:
+    Description: A list of the public subnets
+    Value: !Join [ ",", [ !Ref PublicSubnet1, !Ref PublicSubnet2 ]]
+
+  PrivateSubnets:
+    Description: A list of the private subnets
+    Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
+
+  PublicSubnet1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2:
+    Description: A reference to the public subnet in the 2nd Availability Zone
+    Value: !Ref PublicSubnet2
+
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet1
+
+  PrivateSubnet2:
+    Description: A reference to the private subnet in the 2nd Availability Zone
+    Value: !Ref PrivateSubnet2
