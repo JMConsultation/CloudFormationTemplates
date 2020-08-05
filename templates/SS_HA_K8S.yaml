@@ -45,6 +45,7 @@ Resources:
         - GroupSet:
             - Ref: NodeSecurityGroup
           AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
               Fn::Sub: "${NetworkStackName}-PUBLIC-SUB1-ID"
@@ -72,6 +73,7 @@ Resources:
         - GroupSet:
             - Ref: NodeSecurityGroup
           AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
               Fn::Sub: "${NetworkStackName}-PUBLIC-SUB2-ID"
@@ -100,6 +102,7 @@ Resources:
         - GroupSet:
             - Ref: NodeSecurityGroup
           AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
               Fn::Sub: "${NetworkStackName}-PUBLIC-SUB1-ID"
@@ -128,6 +131,7 @@ Resources:
         - GroupSet:
             - Ref: NodeSecurityGroup
           AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
               Fn::Sub: "${NetworkStackName}-PUBLIC-SUB2-ID"
