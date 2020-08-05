@@ -146,3 +146,32 @@ Resources:
               - sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
               - sudo sed -i 's/.*ssh-rsa/ssh-rsa/g' /root/.ssh/authorized_keys
               - sudo systemctl restart sshd.service
+
+  BASTION:
+    DependsOn:
+      - NodeSecurityGroup
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: 'sympn-kp'
+      SourceDestCheck: 'false'
+      ImageId: 'ami-02d55cb47e83a99a0'
+      NetworkInterfaces:
+        - GroupSet:
+            - Ref: NodeSecurityGroup
+          AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
+          SubnetId:
+            Fn::ImportValue:
+              Fn::Sub: "${NetworkStackName}-PUBLIC-SUB2-ID"
+      Tags:
+        - Key: Name
+          Value: bastion
+      UserData:
+        Fn::Base64:
+          Fn::Join:
+            - ''
+            - - "#!/bin/bash\n"
+              - sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/g' /etc/ssh/sshd_config
+              - sudo sed -i 's/.*ssh-rsa/ssh-rsa/g' /root/.ssh/authorized_keys
+              - sudo systemctl restart sshd.service
