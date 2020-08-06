@@ -14,7 +14,111 @@ Parameters:
     Default: sympan-ha-vpc-stack
 
 Resources:
-### Security Groups
+  ### Policies & roles
+  MasterRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+
+  MasterPolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "k8s-master-policy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'ec2:*'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 'elasticloadbalancing:*'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 'route53:*'
+            Resource: '*'
+          - Effect: Allow
+            Action:
+              - 's3:*'
+            Resource: 'arn:aws:s3:::kubernetes-*'
+      Roles:
+        - Ref: "MasterRole"
+
+  MasterRoleInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        - Ref: "MasterRole"
+
+  WorkerRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+
+  WorkerRolePolicies:
+    Type: "AWS::IAM::Policy"
+    Properties:
+      PolicyName: "k8s-worker-policy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: 's3:*'
+            Resource: 'arn:aws:s3:::kubernetes-*'
+          - Effect: Allow
+            Action: 'ec2:Describe*'
+            Resource: "*"
+          - Effect: Allow
+            Action: 'ec2:AttachVolume'
+            Resource: "*"
+          - Effect: Allow
+            Action: 'ec2:DetachVolume'
+            Resource: "*"
+          - Effect: Allow
+            Action: 'route53:*'
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - 'ecr:GetAuthorizationToken'
+              - 'ecr:BatchCheckLayerAvailability'
+              - 'ecr:GetDownloadUrlForLayer'
+              - 'ecr:GetRepositoryPolicy'
+              - 'ecr:DescribeRepositories'
+              - 'ecr:ListImages'
+              - 'ecr:BatchGetImage'
+            Resource: "*"
+      Roles:
+        - Ref: "WorkerRole"
+
+  WorkerRoleInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        - Ref: "WorkerRole"
+
+  ### Security Groups
   NodeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -31,13 +135,16 @@ Resources:
       IpProtocol: '-1'
       CidrIp: '0.0.0.0/0'
 
-### Nodes
+  ### Nodes
   MASTER1:
     DependsOn:
       - NodeSecurityGroup
+      - MasterRole
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3a.small
+      IamInstanceProfile:
+        Ref: MasterRoleInstanceProfile
       KeyName: 'sympn-kp'
       SourceDestCheck: 'false'
       ImageId: 'ami-02d55cb47e83a99a0'
@@ -52,6 +159,8 @@ Resources:
       Tags:
         - Key: Name
           Value: master-1
+        - Key: 'kubernetes.io/cluster/cluster.local'
+          Value: ''
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -63,9 +172,12 @@ Resources:
   MASTER2:
     DependsOn:
       - NodeSecurityGroup
+      - MasterRole
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3a.small
+      IamInstanceProfile:
+        Ref: MasterRoleInstanceProfile
       KeyName: 'sympn-kp'
       SourceDestCheck: 'false'
       ImageId: 'ami-02d55cb47e83a99a0'
@@ -80,6 +192,8 @@ Resources:
       Tags:
         - Key: Name
           Value: master-2
+        - Key: 'kubernetes.io/cluster/cluster.local'
+          Value: ''
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -92,9 +206,12 @@ Resources:
   WORKER1:
     DependsOn:
       - NodeSecurityGroup
+      - WorkerRole
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3a.small
+      IamInstanceProfile:
+        Ref: WorkerRoleInstanceProfile
       KeyName: 'sympn-kp'
       SourceDestCheck: 'false'
       ImageId: 'ami-02d55cb47e83a99a0'
@@ -109,6 +226,8 @@ Resources:
       Tags:
         - Key: Name
           Value: worker-1
+        - Key: 'kubernetes.io/cluster/cluster.local'
+          Value: ''
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -121,9 +240,12 @@ Resources:
   WORKER2:
     DependsOn:
       - NodeSecurityGroup
+      - WorkerRole
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3a.small
+      IamInstanceProfile:
+        Ref: WorkerRoleInstanceProfile
       KeyName: 'sympn-kp'
       SourceDestCheck: 'false'
       ImageId: 'ami-02d55cb47e83a99a0'
@@ -138,6 +260,8 @@ Resources:
       Tags:
         - Key: Name
           Value: worker-2
+        - Key: 'kubernetes.io/cluster/cluster.local'
+          Value: ''
       UserData:
         Fn::Base64:
           Fn::Join:
