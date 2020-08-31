@@ -13,8 +13,18 @@ Parameters:
     AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
     Default: sympan-ha-vpc-stack
 
+  AMI:
+    Description: AMI for cluster components
+    Type: String
+    Default: 'ami-02d55cb47e83a99a0'
+
+  KEYPAIRNAME:
+    Description: KeyPair Name
+    Type: String
+    Default: 'sympn-kp'
+
 Resources:
-  ### Policies & roles
+  ##### ROLES AND POLICIES TO BE ASSIGNED TO THE CLUSTER COMPONENTS #####
   MasterRole:
     Type: "AWS::IAM::Role"
     Properties:
@@ -118,11 +128,11 @@ Resources:
       Roles:
         - Ref: "WorkerRole"
 
-  ### Security Groups
+  ##### SECURITY GROUPS TO BE ASSIGNED TO THE CLUSTER NODES #####
   NodeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: "node-sg"
+      GroupName: "k8s-sg"
       GroupDescription: "Security Group for K8S Node"
       VpcId:
         Fn::ImportValue:
@@ -135,7 +145,7 @@ Resources:
       IpProtocol: '-1'
       CidrIp: '0.0.0.0/0'
 
-  ### Nodes
+  ##### CLUSTER NODES #####
   MASTER1:
     DependsOn:
       - NodeSecurityGroup
@@ -145,22 +155,23 @@ Resources:
       InstanceType: t3a.small
       IamInstanceProfile:
         Ref: MasterRoleInstanceProfile
-      KeyName: 'sympn-kp'
+      KeyName: !Ref KEYPAIRNAME
       SourceDestCheck: 'false'
-      ImageId: 'ami-02d55cb47e83a99a0'
+      ImageId: !Ref AMI
       NetworkInterfaces:
         - GroupSet:
             - Ref: NodeSecurityGroup
-          AssociatePublicIpAddress: 'true'
           DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
-              Fn::Sub: "${NetworkStackName}-PUBLIC-SUB1-ID"
+              Fn::Sub: "${NetworkStackName}-PRIVATE-SUB1-ID"
       Tags:
         - Key: Name
           Value: master-1
         - Key: 'kubernetes.io/cluster/cluster.local'
           Value: ''
+        - Key: 'kubespray-role'
+          Value: 'kube-master, etcd'
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -178,22 +189,23 @@ Resources:
       InstanceType: t3a.small
       IamInstanceProfile:
         Ref: MasterRoleInstanceProfile
-      KeyName: 'sympn-kp'
+      KeyName: !Ref KEYPAIRNAME
       SourceDestCheck: 'false'
-      ImageId: 'ami-02d55cb47e83a99a0'
+      ImageId: !Ref AMI
       NetworkInterfaces:
         - GroupSet:
             - Ref: NodeSecurityGroup
-          AssociatePublicIpAddress: 'true'
           DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
-              Fn::Sub: "${NetworkStackName}-PUBLIC-SUB2-ID"
+              Fn::Sub: "${NetworkStackName}-PRIVATE-SUB2-ID"
       Tags:
         - Key: Name
           Value: master-2
         - Key: 'kubernetes.io/cluster/cluster.local'
           Value: ''
+        - Key: 'kubespray-role'
+          Value: 'kube-master, etcd'
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -212,22 +224,23 @@ Resources:
       InstanceType: t3a.small
       IamInstanceProfile:
         Ref: WorkerRoleInstanceProfile
-      KeyName: 'sympn-kp'
+      KeyName: !Ref KEYPAIRNAME
       SourceDestCheck: 'false'
-      ImageId: 'ami-02d55cb47e83a99a0'
+      ImageId: !Ref AMI
       NetworkInterfaces:
         - GroupSet:
             - Ref: NodeSecurityGroup
-          AssociatePublicIpAddress: 'true'
           DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
-              Fn::Sub: "${NetworkStackName}-PUBLIC-SUB1-ID"
+              Fn::Sub: "${NetworkStackName}-PRIVATE-SUB1-ID"
       Tags:
         - Key: Name
           Value: worker-1
         - Key: 'kubernetes.io/cluster/cluster.local'
           Value: ''
+        - Key: 'kubespray-role'
+          Value: 'kube-node, etcd'
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -246,9 +259,9 @@ Resources:
       InstanceType: t3a.small
       IamInstanceProfile:
         Ref: WorkerRoleInstanceProfile
-      KeyName: 'sympn-kp'
+      KeyName: !Ref KEYPAIRNAME
       SourceDestCheck: 'false'
-      ImageId: 'ami-02d55cb47e83a99a0'
+      ImageId: !Ref AMI
       NetworkInterfaces:
         - GroupSet:
             - Ref: NodeSecurityGroup
@@ -256,12 +269,14 @@ Resources:
           DeviceIndex: '0'
           SubnetId:
             Fn::ImportValue:
-              Fn::Sub: "${NetworkStackName}-PUBLIC-SUB2-ID"
+              Fn::Sub: "${NetworkStackName}-PRIVATE-SUB2-ID"
       Tags:
         - Key: Name
           Value: worker-2
         - Key: 'kubernetes.io/cluster/cluster.local'
           Value: ''
+        - Key: 'kubespray-role'
+          Value: 'kube-node'
       UserData:
         Fn::Base64:
           Fn::Join:
@@ -271,18 +286,36 @@ Resources:
               - sudo sed -i 's/.*ssh-rsa/ssh-rsa/g' /root/.ssh/authorized_keys
               - sudo systemctl restart sshd.service
 
-  BASTION:
+  ##### SECURITY GROUPS TO BE ASSIGNED TO THE OTHER NODES IN THE VPC #####
+  VPCSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "vpc-sg"
+      GroupDescription: "Security Group for K8S Node"
+      VpcId:
+        Fn::ImportValue:
+          Fn::Sub: "${NetworkStackName}-VPC-ID"
+
+  AllowAllPortsInboundVPCSGRule:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId: !GetAtt VPCSecurityGroup.GroupId
+      IpProtocol: '-1'
+      CidrIp: '0.0.0.0/0'
+
+  ##### PROXY SERVER FOR INGRESS TRAFFIC #####
+  PROXY:
     DependsOn:
       - NodeSecurityGroup
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t2.micro
-      KeyName: 'sympn-kp'
+      KeyName: !Ref KEYPAIRNAME
       SourceDestCheck: 'false'
-      ImageId: 'ami-02d55cb47e83a99a0'
+      ImageId: !Ref AMI
       NetworkInterfaces:
         - GroupSet:
-            - Ref: NodeSecurityGroup
+            - Ref: VPCSecurityGroup
           AssociatePublicIpAddress: 'true'
           DeviceIndex: '0'
           SubnetId:
@@ -290,7 +323,7 @@ Resources:
               Fn::Sub: "${NetworkStackName}-PUBLIC-SUB2-ID"
       Tags:
         - Key: Name
-          Value: bastion
+          Value: proxy
       UserData:
         Fn::Base64:
           Fn::Join:
